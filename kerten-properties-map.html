@@ -1,0 +1,779 @@
+<!--
+  Kerten Hospitality — Interactive Properties Map
+  ------------------------------------------------
+  Self-contained HTML. Two ways to use on Squarespace:
+    A) Paste the entire file contents into a "Code Block" on a Squarespace page (Business plan or higher).
+    B) Upload this file to a host (e.g. GitHub Pages, Netlify, Vercel) and embed it on Squarespace via an Embed Block / iframe:
+         <iframe src="https://yourhost.com/kerten-properties-map.html" width="100%" height="700" frameborder="0"></iframe>
+
+  Built with Leaflet (no API key, no cost) + CartoDB Dark Matter basemap.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kerten Hospitality — Our Properties</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  /* ---------- Brand palette ---------- */
+  :root {
+    --bg:        #0e0d0b;
+    --panel:     #161412;
+    --panel-2:   #1f1b17;
+    --line:      #2a2520;
+    --text:      #f3ece0;
+    --text-dim:  #b6ab98;
+    --gold:      #c9a961;
+    --gold-soft: #e7d4a3;
+    --copper:    #b56b4e;
+    --grey:      #6b6358;
+  }
+
+  * { box-sizing: border-box; }
+  /* Wrapper so Squarespace Code Block doesn't break the rest of the page */
+  .kh-map-wrapper { position: relative; height: 720px; width: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
+  .kh-map-wrapper, .kh-map-wrapper * { box-sizing: border-box; }
+
+  .kh-map-wrapper #map { position: absolute; inset: 0; background: var(--bg); }
+
+  /* Sidebar */
+  .kh-sidebar {
+    position: absolute; top: 20px; left: 20px; bottom: 20px; width: 340px;
+    background: rgba(14,13,11,0.92); backdrop-filter: blur(8px);
+    border: 1px solid var(--line); border-radius: 4px;
+    display: flex; flex-direction: column; z-index: 1000; overflow: hidden;
+  }
+  .kh-sidebar header { padding: 22px 22px 16px; border-bottom: 1px solid var(--line); }
+  .kh-brand { font-family: 'Playfair Display', serif; font-weight: 600; font-size: 20px; letter-spacing: .02em; color: var(--text); }
+  .kh-brand small { display: block; font-family: 'Inter', sans-serif; font-weight: 300; font-size: 11px; color: var(--text-dim); letter-spacing: .25em; text-transform: uppercase; margin-top: 6px; }
+
+  .kh-stats { display: flex; gap: 16px; margin-top: 18px; }
+  .kh-stat { flex: 1; }
+  .kh-stat .num { font-family: 'Playfair Display', serif; font-size: 26px; color: var(--gold); line-height: 1; }
+  .kh-stat .lbl { font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--text-dim); margin-top: 4px; }
+
+  .kh-filters { display: flex; gap: 8px; padding: 14px 22px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .kh-chip {
+    appearance: none; background: transparent; color: var(--text-dim);
+    border: 1px solid var(--line); padding: 6px 12px; border-radius: 999px;
+    font: 500 11px/1 'Inter', sans-serif; letter-spacing: .12em; text-transform: uppercase;
+    cursor: pointer; transition: all .15s ease;
+  }
+  .kh-chip:hover { color: var(--text); border-color: var(--text-dim); }
+  .kh-chip.active { background: var(--gold); color: #1a140a; border-color: var(--gold); }
+
+  .kh-search { padding: 12px 22px; border-bottom: 1px solid var(--line); }
+  .kh-search input {
+    width: 100%; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 2px;
+    padding: 9px 12px; font: 400 13px 'Inter', sans-serif; outline: none;
+  }
+  .kh-search input::placeholder { color: var(--text-dim); }
+  .kh-search input:focus { border-color: var(--gold); }
+
+  .kh-list { flex: 1; overflow-y: auto; }
+  .kh-list::-webkit-scrollbar { width: 6px; }
+  .kh-list::-webkit-scrollbar-thumb { background: var(--line); }
+  .kh-item { padding: 14px 22px; border-bottom: 1px solid rgba(255,255,255,.04); cursor: pointer; transition: background .15s; }
+  .kh-item:hover { background: rgba(201,169,97,.06); }
+  .kh-item .name { font-family: 'Playfair Display', serif; font-size: 15px; color: var(--text); line-height: 1.3; }
+  .kh-item .meta { font-size: 11px; color: var(--text-dim); margin-top: 4px; letter-spacing: .03em; }
+  .kh-item .badge { display: inline-block; margin-top: 8px; font-size: 9px; letter-spacing: .25em; text-transform: uppercase; padding: 3px 9px; border-radius: 2px; }
+  .kh-item .badge.open     { background: rgba(201,169,97,.14); color: var(--gold-soft); border: 1px solid rgba(201,169,97,.4); }
+  .kh-item .badge.pipeline { background: rgba(181,107,78,.14); color: #e09a78; border: 1px solid rgba(181,107,78,.4); }
+  .kh-item .badge.market   { background: rgba(107,99,88,.18); color: var(--text-dim); border: 1px solid rgba(107,99,88,.5); }
+
+  /* Legend */
+  .kh-legend { position: absolute; right: 20px; bottom: 20px; z-index: 1000; background: rgba(14,13,11,0.92); border: 1px solid var(--line); border-radius: 4px; padding: 14px 18px; backdrop-filter: blur(8px); }
+  .kh-legend h4 { margin: 0 0 10px; font: 500 10px/1 'Inter', sans-serif; letter-spacing: .25em; text-transform: uppercase; color: var(--text-dim); }
+  .kh-legend .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 12px; color: var(--text); }
+  .kh-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .kh-dot.open     { background: var(--gold); box-shadow: 0 0 0 2px rgba(201,169,97,.25); }
+  .kh-dot.pipeline { background: transparent; border: 2px solid var(--copper); }
+  .kh-dot.market   { background: transparent; border: 2px dashed var(--grey); }
+
+  /* Popups */
+  .kh-map-wrapper .leaflet-popup-content-wrapper { background: var(--panel) !important; color: var(--text) !important; border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+  .kh-map-wrapper .leaflet-popup-tip { background: var(--panel) !important; }
+  .kh-map-wrapper .leaflet-popup-content { margin: 14px 18px; min-width: 220px; }
+  .pop-name  { font-family: 'Playfair Display', serif; font-size: 17px; margin-bottom: 4px; line-height: 1.25; color: var(--text); }
+  .pop-brand { font-size: 11px; color: var(--gold-soft); letter-spacing: .15em; text-transform: uppercase; margin-bottom: 6px; }
+  .pop-meta  { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; }
+  .pop-notes { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-style: italic; }
+  .pop-badge { display: inline-block; margin-top: 8px; font-size: 9px; letter-spacing: .25em; text-transform: uppercase; padding: 3px 9px; border-radius: 2px; }
+  .pop-badge.open     { background: rgba(201,169,97,.18); color: var(--gold-soft); border: 1px solid rgba(201,169,97,.4); }
+  .pop-badge.pipeline { background: rgba(181,107,78,.18); color: #e09a78; border: 1px solid rgba(181,107,78,.4); }
+  .pop-badge.market   { background: rgba(107,99,88,.22); color: var(--text-dim); border: 1px solid rgba(107,99,88,.55); }
+
+  .kh-map-wrapper .leaflet-control-attribution { background: rgba(14,13,11,.7) !important; color: var(--text-dim) !important; font-size: 10px; }
+  .kh-map-wrapper .leaflet-control-attribution a { color: var(--gold-soft) !important; }
+  .kh-map-wrapper .leaflet-control-zoom a { background: var(--panel) !important; color: var(--text) !important; border-color: var(--line) !important; }
+  .kh-map-wrapper .leaflet-control-zoom a:hover { background: var(--panel-2) !important; }
+
+  /* Country labels (only for countries with properties) */
+  .kh-country-label {
+    color: var(--text-dim);
+    font: 500 11px/1 'Inter', sans-serif;
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7);
+    white-space: nowrap;
+    pointer-events: none;
+    text-align: center;
+    transform: translate(-50%, -50%);
+  }
+
+  /* Mobile */
+  @media (max-width: 720px) {
+    .kh-map-wrapper { height: 600px; }
+    .kh-sidebar { left: 10px; right: 10px; top: 10px; bottom: auto; width: auto; max-height: 50%; }
+    .kh-legend  { right: 10px; bottom: 10px; left: 10px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+    .kh-legend h4 { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="kh-map-wrapper">
+  <div id="map" aria-label="Kerten Hospitality property map"></div>
+
+  <aside class="kh-sidebar" aria-label="Property list">
+    <header>
+      <div class="kh-brand">Kerten Hospitality<small>Our Portfolio</small></div>
+      <div class="kh-stats">
+        <div class="kh-stat"><div class="num" id="kh-c-open">0</div><div class="lbl">Open</div></div>
+        <div class="kh-stat"><div class="num" id="kh-c-pipe">0</div><div class="lbl">Pipeline</div></div>
+        <div class="kh-stat"><div class="num" id="kh-c-cou">0</div><div class="lbl">Countries</div></div>
+      </div>
+    </header>
+
+    <div class="kh-filters" role="tablist">
+      <button class="kh-chip active" data-filter="all">All</button>
+      <button class="kh-chip" data-filter="open">Open</button>
+      <button class="kh-chip" data-filter="pipeline">Pipeline</button>
+    </div>
+
+    <div class="kh-search">
+      <input id="kh-search" type="text" placeholder="Search property, brand, country…" />
+    </div>
+
+    <div class="kh-list" id="kh-list"></div>
+  </aside>
+
+  <div class="kh-legend" aria-label="Map legend">
+    <h4>Status</h4>
+    <div class="row"><span class="kh-dot open"></span> Open</div>
+    <div class="row"><span class="kh-dot pipeline"></span> Pipeline</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<script>
+(function(){
+/* ============================================================
+   KERTEN PORTFOLIO DATA (from kerten_portfolio_MAP.xlsx)
+   Coordinates manually geocoded from Country + Location/Notes.
+   ============================================================ */
+const PROPERTIES = [
+  {
+    "name": "Cloud 7 Resort Sahl Hasheesh",
+    "country": "Egypt",
+    "brand": "Cloud 7 Resort",
+    "type": "Resort",
+    "status": "pipeline",
+    "notes": "Cloud 7 Resort Sahl Hasheesh",
+    "lat": 27.0833,
+    "lng": 33.8833
+  },
+  {
+    "name": "The House Hotel Il Monte Galala",
+    "country": "Egypt",
+    "brand": "The House Hotel",
+    "type": "Hotel",
+    "status": "pipeline",
+    "notes": "Gulf of Suez / Galala mountain, Sokhna",
+    "lat": 29.505,
+    "lng": 32.37
+  },
+  {
+    "name": "Cloud 7 Il Monte Galala",
+    "country": "Egypt",
+    "brand": "Cloud 7",
+    "type": "Resort",
+    "status": "pipeline",
+    "notes": "Sokhna, culture and landscape mega resort",
+    "lat": 29.505,
+    "lng": 32.37
+  },
+  {
+    "name": "The House Hotel Fouka Bay",
+    "country": "Egypt",
+    "brand": "The House Hotel",
+    "type": "Hotel",
+    "status": "pipeline",
+    "notes": "Fouka Bay, Mediterranean coast",
+    "lat": 30.9778,
+    "lng": 28.6453
+  },
+  {
+    "name": "Cloud 7 Fouka Bay",
+    "country": "Egypt",
+    "brand": "Cloud 7",
+    "type": "Hotel + Residence",
+    "status": "pipeline",
+    "notes": "Ras El Hekma / Fouka Bay",
+    "lat": 31.005,
+    "lng": 28.55
+  },
+  {
+    "name": "France — Market Entry",
+    "country": "France",
+    "brand": "--",
+    "type": "--",
+    "status": "market entry",
+    "notes": "Actively exploring opportunities, no signed projects on page",
+    "lat": 46.6034,
+    "lng": 1.8883
+  },
+  {
+    "name": "The House Hotel Kvareli",
+    "country": "Georgia",
+    "brand": "The House Hotel",
+    "type": "Hotel",
+    "status": "pipeline",
+    "notes": "Kakheti wine region, Kvareli Estate resort",
+    "lat": 41.952,
+    "lng": 45.812
+  },
+  {
+    "name": "India — Market Entry",
+    "country": "India",
+    "brand": "--",
+    "type": "--",
+    "status": "market entry",
+    "notes": "New market 2026+, no signed projects on page",
+    "lat": 22.3511,
+    "lng": 78.6677
+  },
+  {
+    "name": "Rifugio Colere 1600 by Cloud 7",
+    "country": "Italy",
+    "brand": "Cloud 7 Hotel",
+    "type": "Hotel / Alpine Lodge",
+    "status": "open",
+    "notes": "Colere (BG), Italian Alps",
+    "lat": 45.9744,
+    "lng": 10.1064
+  },
+  {
+    "name": "Cloud 7 Hotel Roma",
+    "country": "Italy",
+    "brand": "Cloud 7 Hotel",
+    "type": "Hotel",
+    "status": "open",
+    "notes": "Rome, first European Cloud 7",
+    "lat": 41.9028,
+    "lng": 12.4964
+  },
+  {
+    "name": "Cloud 7 Residence Ayla Aqaba",
+    "country": "Jordan",
+    "brand": "Cloud 7 Residence",
+    "type": "Residence",
+    "status": "open",
+    "notes": "Ayla Oasis, Marina Village, Aqaba",
+    "lat": 29.55,
+    "lng": 35.015
+  },
+  {
+    "name": "Ayla Oasis Development",
+    "country": "Jordan",
+    "brand": "Multiple",
+    "type": "Mixed-use development",
+    "status": "pipeline",
+    "notes": "Red Sea coast, bleisure waterfront destination",
+    "lat": 29.55,
+    "lng": 35.015
+  },
+  {
+    "name": "Ouspace Aqaba",
+    "country": "Jordan",
+    "brand": "Ouspace",
+    "type": "Working Hub",
+    "status": "open",
+    "notes": "Marina Village, Cloud 7 Residence building",
+    "lat": 29.55,
+    "lng": 35.015
+  },
+  {
+    "name": "Ray Hotel by Cloud 7",
+    "country": "Kuwait",
+    "brand": "Cloud 7 Hotel",
+    "type": "Hotel",
+    "status": "open",
+    "notes": "",
+    "lat": 29.3759,
+    "lng": 47.9774
+  },
+  {
+    "name": "The House Hotel Al Khiran",
+    "country": "Kuwait",
+    "brand": "The House Hotel",
+    "type": "Hotel",
+    "status": "open",
+    "notes": "Al Khiran, Sabah Al-Ahmad Sea City",
+    "lat": 28.68,
+    "lng": 48.37
+  },
+  {
+    "name": "Ouspace Al Khiran",
+    "country": "Kuwait",
+    "brand": "Ouspace",
+    "type": "Working Hub",
+    "status": "open",
+    "notes": "Pearl City, Al Khiran resort",
+    "lat": 28.68,
+    "lng": 48.37
+  },
+  {
+    "name": "Casadora Resort by Cloud 7 Hotel",
+    "country": "Morocco",
+    "brand": "Cloud 7 Resort",
+    "type": "Resort + Residences",
+    "status": "pipeline",
+    "notes": "El Jadida, ryad-style residences, Groupe Ramos",
+    "lat": 33.2316,
+    "lng": -8.5007
+  },
+  {
+    "name": "Cloud 7 Hotel Dersa Tetuan",
+    "country": "Morocco",
+    "brand": "Cloud 7 Hotel",
+    "type": "Hotel",
+    "status": "pipeline",
+    "notes": "Tetouan, Dersa Palace, Spanish quarter",
+    "lat": 35.576,
+    "lng": -5.3681
+  },
+  {
+    "name": "Cloud 7 Residence AlUla",
+    "country": "Saudi Arabia",
+    "brand": "Cloud 7 Residence",
+    "type": "Residence / Lodges",
+    "status": "open",
+    "notes": "AlUla, short and long stay",
+    "lat": 26.609,
+    "lng": 37.9224
+  },
+  {
+    "name": "Dar Tantora The House Hotel",
+    "country": "Saudi Arabia",
+    "brand": "The House Hotel",
+    "type": "Hotel",
+    "status": "open",
+    "notes": "AlUla Old Town, heritage mudbrick",
+    "lat": 26.623,
+    "lng": 37.912
+  },
+  {
+    "name": "Cloud 7 Al Murjan Island Resort",
+    "country": "Saudi Arabia",
+    "brand": "Cloud 7 Resort",
+    "type": "Resort",
+    "status": "pipeline",
+    "notes": "Dammam, Eastern Province waterfront",
+    "lat": 26.4207,
+    "lng": 50.0888
+  },
+  {
+    "name": "The House Hotel & Residence Al Qaraa",
+    "country": "Saudi Arabia",
+    "brand": "The House Hotel/Residence",
+    "type": "Hotel + Residence",
+    "status": "pipeline",
+    "notes": "Al Qaraa",
+    "lat": 25.44,
+    "lng": 49.65
+  },
+  {
+    "name": "Nura Al Ahsa Cloud 7",
+    "country": "Saudi Arabia",
+    "brand": "Cloud 7 Hotel",
+    "type": "Hotel",
+    "status": "pipeline",
+    "notes": "Al Ahsa, 120 rooms, Ouspace + Food Souk",
+    "lat": 25.3833,
+    "lng": 49.5833
+  },
+  {
+    "name": "Cloud 7 Hotel Yanbu",
+    "country": "Saudi Arabia",
+    "brand": "Cloud 7 Hotel",
+    "type": "Hotel",
+    "status": "pipeline",
+    "notes": "Al-Nawras Island",
+    "lat": 24.0892,
+    "lng": 38.0618
+  },
+  {
+    "name": "The House Hotel Urban Eco Resort Riyadh",
+    "country": "Saudi Arabia",
+    "brand": "The House Hotel",
+    "type": "Resort",
+    "status": "pipeline",
+    "notes": "Riyadh, eco-friendly, spa, green spaces",
+    "lat": 24.78,
+    "lng": 46.65
+  },
+  {
+    "name": "The House Residence Oxagon Village",
+    "country": "Saudi Arabia",
+    "brand": "The House Residence",
+    "type": "Residence",
+    "status": "pipeline",
+    "notes": "NEOM Oxagon",
+    "lat": 28.05,
+    "lng": 34.85
+  },
+  {
+    "name": "Cloud 7 Rooh Resort Abha",
+    "country": "Saudi Arabia",
+    "brand": "Cloud 7 Resort",
+    "type": "Resort / Eco Villas",
+    "status": "pipeline",
+    "notes": "Abha, 70 eco villas",
+    "lat": 18.2164,
+    "lng": 42.5053
+  },
+  {
+    "name": "The House Residence Al Salam District Jeddah",
+    "country": "Saudi Arabia",
+    "brand": "The House Residence",
+    "type": "Residence",
+    "status": "pipeline",
+    "notes": "Jeddah, signed with Baraka at FHS 2025",
+    "lat": 21.581,
+    "lng": 39.165
+  },
+  {
+    "name": "Nakhati Gelato (Bujairi Terrace, Riyadh)",
+    "country": "Saudi Arabia",
+    "brand": "Nakhati",
+    "type": "F&B",
+    "status": "open",
+    "notes": "Diriyah, artisan gelato",
+    "lat": 24.733,
+    "lng": 46.575
+  },
+  {
+    "name": "Ouspace AlUla",
+    "country": "Saudi Arabia",
+    "brand": "Ouspace",
+    "type": "Working Hub",
+    "status": "open",
+    "notes": "AlUla co-working / business hub",
+    "lat": 26.609,
+    "lng": 37.9224
+  },
+  {
+    "name": "Kaynuna Beach Escape",
+    "country": "Saudi Arabia",
+    "brand": "Kaynuna",
+    "type": "Beach / Leisure",
+    "status": "pipeline",
+    "notes": "Saudi coastline, beach destination",
+    "lat": 22.0,
+    "lng": 38.9
+  },
+  {
+    "name": "The House Residence Azure Zanzibar",
+    "country": "Tanzania",
+    "brand": "The House Residence",
+    "type": "Residence / Villas",
+    "status": "pipeline",
+    "notes": "Michamvi Peninsula, 93 ocean-view villas, Q4 2026",
+    "lat": -6.15,
+    "lng": 39.4833
+  },
+  {
+    "name": "Stayso The House Hotel",
+    "country": "Turkiye",
+    "brand": "The House Hotel",
+    "type": "Hotel",
+    "status": "open",
+    "notes": "Istanbul, Golden Horn",
+    "lat": 41.041,
+    "lng": 28.951
+  },
+  {
+    "name": "The House Residence Helis Bodrum",
+    "country": "Turkiye",
+    "brand": "The House Residence",
+    "type": "Residence / Villas",
+    "status": "pipeline",
+    "notes": "Bodrum, 194 villas (website says Pipeline)",
+    "lat": 37.0344,
+    "lng": 27.4305
+  },
+  {
+    "name": "Cloud 7 Hotels Al Sawan",
+    "country": "UAE",
+    "brand": "Cloud 7 Hotel",
+    "type": "Glamping",
+    "status": "pipeline",
+    "notes": "Ras Al Khaimah, ecotourism glamping",
+    "lat": 25.75,
+    "lng": 56.05
+  },
+  {
+    "name": "Cloud 7 Hotels Jebel Jais",
+    "country": "UAE",
+    "brand": "Cloud 7 Hotel",
+    "type": "Glamping",
+    "status": "pipeline",
+    "notes": "Ras Al Khaimah, mountain glamping",
+    "lat": 25.9333,
+    "lng": 56.15
+  },
+  {
+    "name": "Ouspace Dubai",
+    "country": "UAE",
+    "brand": "Ouspace",
+    "type": "Working Hub",
+    "status": "open",
+    "notes": "JLT, Dubai",
+    "lat": 25.07,
+    "lng": 55.145
+  }
+].filter(p => p.status !== 'market entry');  // exclude Market Entry from the map
+
+/* Jitter properties that share the same lat/lng so each marker is clickable */
+(function jitter(){
+  const seen = new Map();
+  PROPERTIES.forEach(p => {
+    const key = p.lat.toFixed(3) + ',' + p.lng.toFixed(3);
+    const n = seen.get(key) || 0;
+    if (n > 0) {
+      const angle = (n - 1) * (Math.PI * 2 / 6);
+      const r = 0.06; // ~6km offset
+      p.lat += Math.cos(angle) * r;
+      p.lng += Math.sin(angle) * r;
+    }
+    seen.set(key, n + 1);
+  });
+})();
+
+/* ---------- Map ---------- */
+const map = L.map('map', { zoomControl: true, worldCopyJump: true, attributionControl: true })
+  .setView([28, 38], 3);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+  subdomains: 'abcd', maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+}).addTo(map);
+/* Country labels — only for countries that have Kerten properties */
+const COUNTRY_LABELS = {
+  "Saudi Arabia": [24.0, 45.0],
+  "Egypt":        [26.8, 30.8],
+  "Jordan":       [31.3, 36.6],
+  "Kuwait":       [29.3, 47.5],
+  "UAE":          [24.3, 54.0],
+  "Italy":        [42.8, 12.8],
+  "Morocco":      [32.0, -6.5],
+  "Turkiye":      [39.0, 35.5],
+  "France":       [46.6,  2.3],
+  "Georgia":      [42.3, 43.4],
+  "India":        [22.4, 78.7],
+  "Tanzania":     [-6.4, 34.9],
+};
+const labelsLayer = L.layerGroup().addTo(map);
+function renderCountryLabels(list) {
+  labelsLayer.clearLayers();
+  const visible = new Set(list.map(p => p.country));
+  Object.entries(COUNTRY_LABELS).forEach(([name, [lat, lng]]) => {
+    if (!visible.has(name)) return;
+    L.marker([lat, lng], {
+      interactive: false,
+      icon: L.divIcon({
+        className: 'kh-country-label',
+        html: name.toUpperCase(),
+        iconSize: null,
+      })
+    }).addTo(labelsLayer);
+  });
+}
+
+/* ---------- Markers ---------- */
+function markerStyle(status) {
+  if (status === 'open')
+    return { radius: 8, color: '#c9a961', weight: 2, fillColor: '#c9a961', fillOpacity: 1 };
+  if (status === 'pipeline')
+    return { radius: 8, color: '#b56b4e', weight: 2, fillColor: 'transparent', fillOpacity: 0 };
+  // market entry
+  return { radius: 9, color: '#6b6358', weight: 2, fillColor: 'transparent', fillOpacity: 0, dashArray: '3,3' };
+}
+
+const markersLayer = L.layerGroup().addTo(map);
+const markerIndex = new Map(); // id -> marker
+
+function popupHTML(p) {
+  const cls = p.status === 'open' ? 'open' : (p.status === 'pipeline' ? 'pipeline' : 'market');
+  const lbl = p.status.replace(/\b\w/g, c => c.toUpperCase());
+  const brand = p.brand && p.brand !== '--' ? `<div class="pop-brand">${esc(p.brand)}</div>` : '';
+  const type  = p.type  && p.type  !== '--' ? `<div class="pop-meta">${esc(p.type)}</div>` : '';
+  const notes = p.notes ? `<div class="pop-notes">${esc(p.notes)}</div>` : '';
+  return `
+    ${brand}
+    <div class="pop-name">${esc(p.name)}</div>
+    <div class="pop-meta">${esc(p.country)}</div>
+    ${type}
+    ${notes}
+    <span class="pop-badge ${cls}">${lbl}</span>`;
+}
+
+function renderMarkers(list) {
+  markersLayer.clearLayers();
+  markerIndex.clear();
+  list.forEach((p, i) => {
+    const id = p.country + '|' + p.name + '|' + i;
+    const m = L.circleMarker([p.lat, p.lng], markerStyle(p.status))
+      .bindPopup(popupHTML(p), { closeButton: false, maxWidth: 280 });
+    m.on('mouseover', function(){ this.setStyle({ weight: 3 }); });
+    m.on('mouseout',  function(){ this.setStyle(markerStyle(p.status)); });
+    m.addTo(markersLayer);
+    markerIndex.set(id, m);
+    p._id = id;
+  });
+}
+
+/* ---------- Sidebar list ---------- */
+function renderList(list) {
+  const el = document.getElementById('kh-list');
+  if (list.length === 0) {
+    el.innerHTML = '<div style="padding:24px 22px; color:var(--text-dim); font-size:12px; letter-spacing:.05em;">No properties match.</div>';
+    return;
+  }
+  el.innerHTML = list.map(p => {
+    const cls = p.status === 'open' ? 'open' : (p.status === 'pipeline' ? 'pipeline' : 'market');
+    const lbl = p.status.replace(/\b\w/g, c => c.toUpperCase());
+    const sub = (p.brand && p.brand !== '--' ? esc(p.brand) + ' · ' : '') + esc(p.country);
+    return `
+      <div class="kh-item" data-id="${esc(p._id)}">
+        <div class="name">${esc(p.name)}</div>
+        <div class="meta">${sub}</div>
+        <span class="badge ${cls}">${lbl}</span>
+      </div>`;
+  }).join('');
+  el.querySelectorAll('.kh-item').forEach(node => {
+    node.addEventListener('click', () => {
+      const id = node.dataset.id;
+      const p = list.find(x => x._id === id);
+      if (!p) return;
+      map.flyTo([p.lat, p.lng], 6, { duration: 1.1 });
+      const m = markerIndex.get(id);
+      if (m) setTimeout(() => m.openPopup(), 700);
+    });
+  });
+}
+
+/* ---------- Stats ---------- */
+function renderStats(list) {
+  document.getElementById('kh-c-open').textContent = list.filter(p => p.status === 'open').length;
+  document.getElementById('kh-c-pipe').textContent = list.filter(p => p.status === 'pipeline').length;
+  document.getElementById('kh-c-cou').textContent  = new Set(list.map(p => p.country)).size;
+}
+
+/* ---------- Filter + search ---------- */
+let activeFilter = 'all';
+let searchTerm = '';
+
+function applyFilters() {
+  const filtered = PROPERTIES.filter(p => {
+    if (activeFilter !== 'all' && p.status !== activeFilter) return false;
+    if (!searchTerm) return true;
+    const q = searchTerm.toLowerCase();
+    return p.name.toLowerCase().includes(q)
+        || p.country.toLowerCase().includes(q)
+        || (p.brand || '').toLowerCase().includes(q)
+        || (p.type  || '').toLowerCase().includes(q)
+        || (p.notes || '').toLowerCase().includes(q);
+  });
+  renderMarkers(filtered);
+  renderList(filtered);
+  renderStats(filtered);
+  renderCountryLabels(filtered);
+}
+
+document.querySelectorAll('.kh-chip').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.kh-chip').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    activeFilter = b.dataset.filter;
+    applyFilters();
+  });
+});
+document.getElementById('kh-search').addEventListener('input', e => {
+  searchTerm = e.target.value.trim();
+  applyFilters();
+});
+
+/* ---------- Helpers ---------- */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- Boot ---------- */
+applyFilters();
+})();
+</script>
+</body>
+</html>
+ctiveFilter !== 'all' && p.status !== activeFilter) return false;
+    if (!searchTerm) return true;
+    const q = searchTerm.toLowerCase();
+    return p.name.toLowerCase().includes(q)
+        || p.country.toLowerCase().includes(q)
+        || (p.brand || '').toLowerCase().includes(q)
+        || (p.type  || '').toLowerCase().includes(q)
+        || (p.notes || '').toLowerCase().includes(q);
+  });
+  renderMarkers(filtered);
+  renderList(filtered);
+  renderStats(filtered);
+  renderCountryLabels(filtered);
+}
+
+document.querySelectorAll('.kh-chip').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.kh-chip').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    activeFilter = b.dataset.filter;
+    applyFilters();
+  });
+});
+document.getElementById('kh-search').addEventListener('input', e => {
+  searchTerm = e.target.value.trim();
+  applyFilters();
+});
+
+/* ---------- Helpers ---------- */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- Boot ---------- */
+applyFilters();
+})();
+</script>
+</body>
+</html>
